@@ -26,7 +26,6 @@ version_2_with_negative = True #squad_v2 or squad
 from utils_qa import preprocess_squad_batch, updateopenQAvalinputs, \
     postprocess_qa_predictions, create_and_fill_np_array, updateQAtraininputs, updateQAvalinputs
 
-
 #https://huggingface.co/facebook/wmt21-dense-24-wide-en-x
 # model = AutoModelForSeq2SeqLM.from_pretrained("facebook/wmt21-dense-24-wide-en-x")
 # tokenizer = AutoTokenizer.from_pretrained("facebook/wmt21-dense-24-wide-en-x")
@@ -76,7 +75,7 @@ def loadmodel(model_checkpoint, task="QA", mycache_dir="", pretrained="", hpc=Tr
     else:
         modelcache_dir=os.path.join(mycache_dir,'hub')
         #tokenizer = AutoTokenizer.from_pretrained(model_checkpoint, cache_dir=modelcache_dir)
-        tokenizer = AutoTokenizer.from_pretrained(model_checkpoint, src_lang="en", tgt_lang="zh", cache_dir=modelcache_dir)
+        tokenizer = AutoTokenizer.from_pretrained(model_checkpoint, src_lang="en", tgt_lang="en", cache_dir=modelcache_dir)
         
         if task in ['translation', 'summarization', 'Seq2SeqLM', 'openqa']:
             model = AutoModelForSeq2SeqLM.from_pretrained(model_checkpoint, cache_dir=modelcache_dir)
@@ -214,11 +213,17 @@ def loaddata(args, USE_HPC):
                 task_column ="question"
                 text_column = "context"
                 target_column = "answers"
+            elif args.data_name=='Helsinki-NLP/opus_rf': #tra
+                raw_datasets = load_dataset("Helsinki-NLP/opus_rf", 'de-en')
+                task_column ="translation"
+                text_column =  "de"
+                target_column = "en"
             else: 
                 #raw_datasets = load_dataset(args.data_name, args.dataconfig) #dataconfig="train_asks[:5000]"
-                raw_datasets = load_dataset(args.data_name)
-                text_column = "text"
-                target_column = "summary"
+                raw_datasets = load_dataset(args.data_name, 'de-en')
+                task_column ="translation"
+                text_column =  "de"
+                target_column = "en"
         #Download to home/.cache/huggingface/dataset
         
         print("All keys in raw datasets:", raw_datasets['train'][0].keys()) #obly one ['translation'] key
@@ -253,7 +258,7 @@ def loaddata(args, USE_HPC):
             raw_datasets[valkey] = raw_datasets[valkey].shuffle(seed=42).select([i for i in list(range(testlen))])
     
         #limit the evaluation set size
-        maxtestlen = 5000
+        maxtestlen = 50
         if len(raw_datasets[valkey])>maxtestlen:
             raw_datasets[valkey] = raw_datasets[valkey].shuffle(seed=42).select([i for i in list(range(maxtestlen))])
 
@@ -697,11 +702,11 @@ if __name__ == "__main__":
                     help='data name: squad_v2, squad, opus_books, kde4, opus100, cnn_dailymail, billsum, xsum')
     parser.add_argument('--dataconfig', type=str, default='',
                     help='train_asks[:5000]')
-    parser.add_argument('--subset', type=float, default=5000,
+    parser.add_argument('--subset', type=float, default=50,
                     help='0 means all dataset')
-    parser.add_argument('--cache_path', type=str, default="D:/Cache/huggingface",
+    parser.add_argument('--cache_path', type=str, default="Cache/huggingface",
                     help='path to huggingface cache: /data/cmpe249-fa23/Huggingfacecache')
-    parser.add_argument('--model_checkpoint', type=str, default="facebook/wmt21-dense-24-wide-en-x",
+    parser.add_argument('--model_checkpoint', type=str, default="t5-base",
                     help='Model checkpoint name from HF, t5-base, mybert, distilbert-base-uncased, t5-small, t5-base, Helsinki-NLP/opus-mt-en-zh, Helsinki-NLP/opus-mt-en-fr, t5-small, facebook/wmt21-dense-24-wide-en-x')
     parser.add_argument('--task', type=str, default="translation",
                     help='NLP tasks: openqa, translation, summarization, QA')
@@ -725,17 +730,17 @@ if __name__ == "__main__":
                     help='output path')
     parser.add_argument('--traintag', type=str, default="1210",
                     help='Name the current training')
-    parser.add_argument('--training', default=True, action='store_true',
+    parser.add_argument('--training', default=False, action='store_true',
                     help='Perform training')
     parser.add_argument('--usehpc', default=False, action='store_true',
                     help='Use HPC')
     parser.add_argument('--useHFaccelerator', default=False, action='store_true',
                     help='Use Huggingface accelerator')
     parser.add_argument('--gpuid', default=0, type=int, help='GPU id')
-    parser.add_argument('--total_epochs', default=16, type=int, help='Total epochs to train the model')
+    parser.add_argument('--total_epochs', default=8, type=int, help='Total epochs to train the model')
     parser.add_argument('--save_every', default=2, type=int, help='How often to save a snapshot')
-    parser.add_argument('--batch_size', default=8, type=int, help='Input batch size on each device (default: 32)')
-    parser.add_argument('--learningrate', default=2e-5, type=float, help='Learning rate')
+    parser.add_argument('--batch_size', default=3, type=int, help='Input batch size on each device (default: 32)')
+    parser.add_argument('--learningrate', default=2e-3, type=float, help='Learning rate')
     parser.add_argument(
         "--lr_scheduler_type",
         type=str,
@@ -787,6 +792,9 @@ if __name__ == "__main__":
             "passed to ``model.generate``, which is used during ``evaluate`` and ``predict``."
         ),
     )
+    parser.add_argument('--evaluate', default=False, action='store_true',
+                    help='Perform only evaluation without training')
+
     args = parser.parse_args()
 
     print("useHFevaluator:", args.hfevaluate)
@@ -824,7 +832,7 @@ if __name__ == "__main__":
         os.environ['HTTP_PROXY'] = "http://172.16.1.2:3128"
         os.environ['https_proxy'] = "https://172.16.1.2:3128"
         os.environ['HTTPS_PROXY'] = "https://172.16.1.2:3128"
-        trainoutput="/data/cmpe249-fa23/trainoutput/huggingface"
+        trainoutput="./data/huggingface"
         #taskname=args.traintag #"eli5asksciencemodeling"
     else:
         trainoutput=args.outputdir #"./output"
@@ -841,6 +849,8 @@ if __name__ == "__main__":
     trainoutput=os.path.join(trainoutput, model_checkpoint, args.data_name+'_'+args.traintag)
     os.makedirs(trainoutput, exist_ok=True)
     print("Trainoutput folder:", trainoutput)
+    print("----------------------------------------------")
+    print(model_checkpoint)
 
     model, tokenizer, starting_epoch = loadmodel(model_checkpoint, task=task, mycache_dir=mycache_dir, pretrained=args.pretrained, hpc=USE_HPC, unfreezename=args.unfreezename)
     #tokenizer.model_max_len=512
@@ -915,6 +925,7 @@ if __name__ == "__main__":
                 #model_inputs["labels"] = labels_out
             else:
                 model_inputs["labels"] = labels["input_ids"]
+            print("______________checkpoint_________")
             return model_inputs
         
         if task in ["translation", "summarization"]:
@@ -1057,25 +1068,26 @@ if __name__ == "__main__":
         num_training_steps=num_training_steps,
     )
 
-    if use_accelerator:
-        #accelerator = Accelerator(mixed_precision="fp16", gradient_accumulation_steps=2)
-        accelerator = Accelerator()
-        model, optimizer, train_dataloader, eval_dataloader, lr_scheduler = accelerator.prepare(
-            model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
-        )
-        device = accelerator.device
-        print("Using HF Accelerator and device:", device)
-    else:
-        accelerator = None
-        if torch.cuda.is_available():
-            device = torch.device('cuda:'+str(args.gpuid))  # CUDA GPU 0
-        elif torch.backends.mps.is_available():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
+    # if use_accelerator:
+    #     #accelerator = Accelerator(mixed_precision="fp16", gradient_accumulation_steps=2)
+    #     accelerator = Accelerator()
+    #     model, optimizer, train_dataloader, eval_dataloader, lr_scheduler = accelerator.prepare(
+    #         model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
+    #     )
+    #     device = accelerator.device
+    #     print("Using HF Accelerator and device:", device)
+    # else:
+        # accelerator = None
+        # if torch.cuda.is_available():
+        #     device = torch.device('cuda:'+str(args.gpuid))  # CUDA GPU 0
+        # elif torch.backends.mps.is_available():
+        #     device = torch.device("mps")
+        # else:
+    accelerator = None
+    device = torch.device("cpu")
 
-        model.to(device)
-        print("Using device:", device)
+    model.to(device)
+    print("Using device:", device)
     
     
     if task in ["translation", "summarization"]:
@@ -1135,14 +1147,13 @@ if __name__ == "__main__":
                 #unwrapped_model.save_pretrained(trainoutput, save_function=accelerator.save)
                 if accelerator.is_main_process:
                     tokenizer.save_pretrained(trainoutput)
-                savemodels(model, optimizer, epoch, trainoutput)
+                # savemodels(model, optimizer, epoch, trainoutput)
             else:
                 #model.save_pretrained(trainoutput)
                 #torch.save(model.state_dict(), os.path.join(trainoutput, 'savedmodel.pth'))
-                savemodels(model, optimizer, epoch, trainoutput)
+                # savemodels(model, optimizer, epoch, trainoutput)
                 tokenizer.save_pretrained(trainoutput)
 
     del model, optimizer, lr_scheduler
     if use_accelerator:
         accelerator.free_memory()
-

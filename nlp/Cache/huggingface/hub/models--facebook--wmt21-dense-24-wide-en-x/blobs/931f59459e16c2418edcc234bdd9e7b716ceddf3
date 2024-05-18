@@ -1,0 +1,1 @@
+{"bos_token": "<s>", "eos_token": "</s>", "unk_token": "<unk>", "sep_token": "</s>", "pad_token": "<pad>", "additional_special_tokens": ["__en__", "__ha__", "__is__", "__ja__", "__cs__", "__ru__", "__zh__", "__de__"]}
